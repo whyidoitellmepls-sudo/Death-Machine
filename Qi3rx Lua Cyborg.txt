@@ -13,7 +13,7 @@ local display = Player.DisplayName
 
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/zerquesth/elerium-v2/refs/heads/main/specialfornoobs"))()
 
-local window = library:AddWindow("Slayer "..display, {
+local window = library:AddWindow("Slayer | "..display, {
     title_bar = {Color3.fromRGB(0, 0, 0), Color3.fromRGB(30, 30, 30), Color3.fromRGB(0, 0, 0)},
 	title_bar_transparency = 0.2,
 	background = {Color3.fromRGB(0, 0, 0), Color3.fromRGB(30, 30, 30), Color3.fromRGB(0, 0, 0)},
@@ -23,18 +23,46 @@ local window = library:AddWindow("Slayer "..display, {
 	can_resize = true
 })
 
-local antiAFKConnection
-local function setupAntiAFK()
-    if antiAFKConnection then
-        antiAFKConnection:Disconnect()
+local function activateGamepass()
+    local gamepassFolder = game:GetService("ReplicatedStorage"):FindFirstChild("gamepassIds")
+    local player = game:GetService("Players").LocalPlayer
+
+    if not gamepassFolder or not player then 
+        warn("Не удалось найти gamepassFolder или игрока")
+        return 
     end
 
-    antiAFKConnection = Player.Idled:Connect(function()
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
+    for _, gamepass in pairs(player.ownedGamepasses:GetChildren()) do
+        gamepass:Destroy()
+    end
+
+    for _, gamepass in pairs(gamepassFolder:GetChildren()) do
+        if not player.ownedGamepasses:FindFirstChild(gamepass.Name) then
+            local value = Instance.new("IntValue")
+            value.Name = gamepass.Name
+            value.Value = gamepass.Value
+            value.Parent = player.ownedGamepasses
+        end
+    end
+    
+end
+
+activateGamepass()
+
+local function blockrebirths()
+local OldNameCall = nil
+    OldNameCall = hookmetamethod(game, "__namecall", function(self, ...)
+        local Args = {
+            ...
+        }
+        if self.Name == "rebirthRemote" and Args[1] == "rebirthRequest" then
+            return
+        end
+        return OldNameCall(self, unpack(Args))
     end)
 end
-setupAntiAFK()
+
+blockrebirths()
 
 local function removePortals()
     for _, portal in pairs(game:GetDescendants()) do
@@ -58,7 +86,6 @@ local MainTab = window:AddTab("Main")
 local KillingTab = window:AddTab("Killing")
 local SpecsTab = window:AddTab("Specs")
 local FarmingTab = window:AddTab("Farming")
-local FastFarmingTab = window:AddTab("Fast Farming")
 local InventoryTab = window:AddTab("Inventory")
 local PetsTab = window:AddTab("Pet Shop")
 local TeleportTab = window:AddTab("Teleports")
@@ -99,41 +126,19 @@ task.spawn(function()
 	end
 end)
 
-local userSpeed = 120
-local speedActive = false
-
-MainTab:AddTextBox("Speed", function(text)
-	text = string.gsub(text, "%s+", "")
-	local value = tonumber(text)
-	if value and value > 0 then
-		userSpeed = value
-	end
-end)
-
-local setspeedswitch = MainTab:AddSwitch("Set Speed", function(bool)
-	speedActive = bool
-end)
-
-setspeedswitch:Set(false)
-
-task.spawn(function()
-	while true do
-		if speedActive then
-			local character = Players.LocalPlayer.Character
-			if character then
-				local humanoid = character:FindFirstChildOfClass("Humanoid")
-				if humanoid then
-					changeSpeedSizeRemote:InvokeServer("changeSpeed", userSpeed)
-				end
-			end
-		end
-		task.wait(0.15)
-	end
+MainTab:AddTextBox("Speed Amount", function(text)
+    local newSpeed = tonumber(text)
+        if newSpeed and newSpeed > 0 then
+            local humanoid = game.Players.LocalPlayer.Character.Humanoid
+            if humanoid then
+                humanoid.WalkSpeed = newSpeed
+            end
+        end
 end)
 
 MainTab:AddLabel("Important:").TextSize = 22
 
-local antiKnockbackSwitch = MainTab:AddSwitch("Anti Fling", function(bool)
+local antiKnockbackSwitch = MainTab:AddSwitch("Anti-Knockback", function(bool)
     if bool then
         local playerName = game.Players.LocalPlayer.Name
         local character = game.Workspace:FindFirstChild(playerName)
@@ -883,6 +888,134 @@ game.Players.PlayerRemoving:Connect(function(player)
     end
 end)
 
+
+KillingTab:AddLabel("")
+KillingTab:AddLabel("—— TP To Player + Auto Slams ——").TextSize = 18
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local following = false
+local followTarget = nil
+
+local function followPlayer(targetPlayer)
+    local myChar = LocalPlayer.Character
+    local targetChar = targetPlayer.Character
+
+    if not (myChar and targetChar) then return end
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+
+    if myHRP and targetHRP then
+        local followPos = targetHRP.Position - (targetHRP.CFrame.LookVector * 3)
+        myHRP.CFrame = CFrame.new(followPos, targetHRP.Position)
+    end
+end
+
+local followDropdown = KillingTab:AddDropdown("Teleport player", function(selectedOption)
+    if selectedOption and selectedOption ~= "" then
+        local target = nil
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local optionText = plr.DisplayName .. " | " .. plr.Name
+            if selectedOption == optionText then
+                target = plr
+                break
+            end
+        end
+
+        if target then
+            followTarget = target.Name
+            following = true
+            followPlayer(target)
+        end
+    end
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= LocalPlayer then
+        followDropdown:Add(player.DisplayName .. " | " .. player.Name)
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        followDropdown:Add(player.DisplayName .. " | " .. player.Name)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    followDropdown:Clear()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            followDropdown:Add(plr.DisplayName .. " | " .. plr.Name)
+        end
+    end
+
+    if followTarget == player.Name then
+        followTarget = nil
+        following = false
+    end
+end)
+
+KillingTab:AddButton("Stop Following", function()
+    following = false
+    followTarget = nil
+    
+end)
+
+task.spawn(function()
+    while task.wait(0.01) do
+        if following and followTarget then
+            local target = Players:FindFirstChild(followTarget)
+            if target then
+                followPlayer(target)
+            else
+                following = false
+                followTarget = nil
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if following and followTarget then
+        local target = Players:FindFirstChild(followTarget)
+        if target then
+            followPlayer(target)
+        end
+    end
+end)
+
+local godDamageActive = false
+
+KillingTab:AddSwitch("Fast Auto Slams", function(state)
+    godDamageActive = state
+    if state then
+        task.spawn(function()
+            while godDamageActive do
+                local player = LocalPlayer
+                local groundSlam = player.Backpack:FindFirstChild("Ground Slam") or (player.Character and player.Character:FindFirstChild("Ground Slam"))
+
+                if groundSlam then
+                    if groundSlam.Parent == player.Backpack then
+                        groundSlam.Parent = player.Character
+                    end
+                    if groundSlam:FindFirstChild("attackTime") then
+                        groundSlam.attackTime.Value = 0
+                    end
+                    player.muscleEvent:FireServer("slam")
+                    groundSlam:Activate()
+                end
+
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+
+KillingTab:AddLabel("")
 KillingTab:AddLabel("Kill Aura:").TextSize = 22
 
 local ringPart = nil
@@ -1151,32 +1284,6 @@ task.spawn(function()
     end
 end)
 
-FarmingTab:AddLabel("Misc").TextSize = 22
-
-local autoLiftSwitch = FarmingTab:AddSwitch("Auto Lift (Gamepass)", function(bool)
-    if bool then
-        local gamepassFolder = game:GetService("ReplicatedStorage").gamepassIds
-        local player = game:GetService("Players").LocalPlayer
-        for _, gamepass in pairs(gamepassFolder:GetChildren()) do
-            local value = Instance.new("IntValue")
-            value.Name = gamepass.Name
-            value.Value = gamepass.Value
-            value.Parent = player.ownedGamepasses
-        end
-    else
-        local player = game:GetService("Players").LocalPlayer
-        if player and player.ownedGamepasses then
-            local gamepassFolder = game:GetService("ReplicatedStorage").gamepassIds
-            for _, gamepass in pairs(gamepassFolder:GetChildren()) do
-                local ownedPass = player.ownedGamepasses:FindFirstChild(gamepass.Name)
-                if ownedPass and ownedPass.Value == gamepass.Value then
-                    ownedPass:Destroy()
-                end
-            end
-        end
-    end
-end)
-
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
@@ -1219,80 +1326,6 @@ local switch = FarmingTab:AddSwitch("Auto Punch (without animation)", function(e
     end
 end)
 switch:Set(false)
-
-local rebirthLabel = FarmingTab:AddLabel("Rebirths:")
-rebirthLabel.TextSize = 22
-
-local rebirthLabel = FarmingTab:AddLabel("Rebirths: 0")
-rebirthLabel.TextSize = 17
-
-local targetLabel = FarmingTab:AddLabel("Target: None")
-targetLabel.TextSize = 17
-
-local function formatNumber(num)
-    local numStr = tostring(num)
-    local formatted = ""
-    local counter = 0
-
-    for i = #numStr, 1, -1 do
-        counter = counter + 1
-        formatted = numStr:sub(i, i) .. formatted
-        if counter % 3 == 0 and i > 1 then
-            formatted = "," .. formatted
-        end
-    end
-    
-    return formatted
-end
-
-local rebirths = player.leaderstats:WaitForChild("Rebirths")
-local targetRebirths = 0
-local isAutoRebirthing = false
-local rebirthSwitch
-
-local function autoRebirth()
-    isAutoRebirthing = true
-    while isAutoRebirthing and rebirths.Value < targetRebirths do
-        ReplicatedStorage.rEvents.rebirthRemote:InvokeServer("rebirthRequest")
-        task.wait(0.05)
-    end
-    isAutoRebirthing = false
-    if rebirthSwitch then
-        rebirthSwitch:Set(false)
-    end
-end
-
-FarmingTab:AddTextBox("Set Rebirth Target", function(text)
-    local val = tonumber(text)
-    if val and val >= 0 then
-        targetRebirths = val
-        print("Target set to:" .. targetRebirths)
-    else
-        print("Invalid.")
-    end
-end)
-
-rebirthSwitch = FarmingTab:AddSwitch("Auto Rebirth", function(enabled)
-    if enabled then
-        if targetRebirths > 0 and rebirths.Value < targetRebirths then
-            task.spawn(autoRebirth)
-        else
-            rebirthSwitch:Set(false)
-        end
-    else
-        isAutoRebirthing = false
-    end
-end)
-
-task.spawn(function()
-    while true do
-        rebirthLabel.Text = "Rebirths: " .. formatNumber(rebirths.Value)
-        targetLabel.Text = "Target Rebirths: " .. formatNumber(targetRebirths)
-        task.wait(0.2)
-    end
-end)
-
-
 
 
 local changeSpeedSizeRemote = ReplicatedStorage.rEvents.changeSpeedSizeRemote
@@ -1979,216 +2012,4 @@ TeleportTab:AddButton("Frost Gym",function()
     local char = player.Character or Player.CharacterAdded()
     local hrp = char:WaitForChild("HumanoidRootPart")
     hrp.CFrame = CFrame.new(-2623, 7.36, -409)
-end)
-
-FastFarmingTab:AddLabel("Rebirthing").TextSize = 20
-
-local function unequipPets()
-    for _, folder in pairs(player.petsFolder:GetChildren()) do
-        if folder:IsA("Folder") then
-            for _, pet in pairs(folder:GetChildren()) do
-                ReplicatedStorage.rEvents.equipPetEvent:FireServer("unequipPet", pet)
-            end
-        end
-    end
-    task.wait(0.1)
-end
-
-local function equipPetsByName(name)
-    unequipPets()
-    task.wait(0.01)
-    for _, pet in pairs(player.petsFolder.Unique:GetChildren()) do
-        if pet.Name == name then
-            ReplicatedStorage.rEvents.equipPetEvent:FireServer("equipPet", pet)
-        end
-    end
-end
-
-local isRunning = false
-
-local function fastReb()
-    while isRunning do
-        equipPetsByName("Swift Samurai")
-        task.wait(0.4) 
-
-        local rebirths = player.leaderstats.Rebirths.Value
-        local strengthTarget = 5000 + (rebirths * 2550)
-
-        while isRunning and player.leaderstats.Strength.Value < strengthTarget do
-            local repsToDo = player.MembershipType == Enum.MembershipType.Premium and 8 or 14
-            for _ = 1, repsToDo do
-                muscleEvent:FireServer("rep")
-            end
-            task.wait(0.02)
-        end
-
-        if player.leaderstats.Strength.Value >= strengthTarget then
-            equipPetsByName("Tribal Overlord")
-            task.wait(0.25)
-
-            local before = player.leaderstats.Rebirths.Value
-            repeat
-                ReplicatedStorage.rEvents.rebirthRemote:InvokeServer("rebirthRequest")
-                task.wait(0.05)
-            until player.leaderstats.Rebirths.Value > before
-
-            task.wait(0.5)
-        end
-    end
-end
-
-local fastrebswitch = FastFarmingTab:AddSwitch("Fast Rebirth", function(bool)
-    if bool then
-        isRunning = true
-        fastReb()
-    else
-        isRunning = false
-    end
-end)
-
-FastFarmingTab:AddLabel("Strength").TextSize = 20
-
-local isFarmingStrength = false
-
-local function getPing()
-    local ping = game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()
-    return ping
-end
-
-local function farmStrengthOnly()
-    while isFarmingStrength do
-        local currentPing = getPing()
-
-        if currentPing > 2000 then
-            repeat
-                task.wait(0.5)
-                currentPing = getPing()
-            until currentPing < 350 or not isFarmingStrength
-        else
-            local repsToDo = player.MembershipType == Enum.MembershipType.Premium and 17 or 17
-            for _ = 1, repsToDo do
-                if not isFarmingStrength then break end
-                muscleEvent:FireServer("rep")
-            end
-            task.wait(0.02)
-        end
-    end
-end
-
-local strengthFarmSwitch = FastFarmingTab:AddSwitch("Fast Strength", function(enabled)
-    if enabled then
-        isFarmingStrength = true
-        farmStrengthOnly()
-    else
-        isFarmingStrength = false
-    end
-end)
-
-
-FastFarmingTab:AddLabel("Misc").TextSize = 20
-
-local function activateProteinEgg()
-    local tool = player.Character:FindFirstChild("Protein Egg") or player.Backpack:FindFirstChild("Protein Egg")
-    if tool then
-        muscleEvent:FireServer("proteinEgg", tool)
-    end
-end
-
-local running = false
-
-task.spawn(function()
-    while true do
-        if running then
-            activateProteinEgg()
-            task.wait(1800)
-        else
-            task.wait(1)
-        end
-    end
-end)
-
-local switch = FastFarmingTab:AddSwitch("Auto Egg", function(state)
-    running = state
-    if state then
-        activateProteinEgg()
-    end
-end)
-switch:Set(false)
-
-
-FastFarmingTab:AddButton("Equip Swift Samurai", function()
-    unequipPets()
-    equipPetsByName("Swift Samurai")
-end)
-
-FastFarmingTab:AddButton("Anti Lag (Only for Fast Farm!)", function()
-    local playerGui = player:WaitForChild("PlayerGui")
-    local lighting = game:GetService("Lighting")
-
-    for _, gui in pairs(playerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") then
-            gui:Destroy()
-        end
-    end
-
-    local function darkenSky()
-        for _, v in pairs(lighting:GetChildren()) do
-            if v:IsA("Sky") then
-                v:Destroy()
-            end
-        end
-
-        local darkSky = Instance.new("Sky")
-        darkSky.Name = "DarkSky"
-        darkSky.SkyboxBk = "rbxassetid://0"
-        darkSky.SkyboxDn = "rbxassetid://0"
-        darkSky.SkyboxFt = "rbxassetid://0"
-        darkSky.SkyboxLf = "rbxassetid://0"
-        darkSky.SkyboxRt = "rbxassetid://0"
-        darkSky.SkyboxUp = "rbxassetid://0"
-        darkSky.Parent = lighting
-
-        lighting.Brightness = 0
-        lighting.ClockTime = 0
-        lighting.TimeOfDay = "00:00:00"
-        lighting.OutdoorAmbient = Color3.new(0, 0, 0)
-        lighting.Ambient = Color3.new(0, 0, 0)
-        lighting.FogColor = Color3.new(0, 0, 0)
-        lighting.FogEnd = 100
-
-        task.spawn(function()
-            while true do
-                wait(5)
-                if not lighting:FindFirstChild("DarkSky") then
-                    darkSky:Clone().Parent = lighting
-                end
-                lighting.Brightness = 0
-                lighting.ClockTime = 0
-                lighting.OutdoorAmbient = Color3.new(0, 0, 0)
-                lighting.Ambient = Color3.new(0, 0, 0)
-                lighting.FogColor = Color3.new(0, 0, 0)
-                lighting.FogEnd = 100
-            end
-        end)
-    end
-
-    local function removeParticleEffects()
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj:IsA("ParticleEmitter") then
-                obj:Destroy()
-            end
-        end
-    end
-
-    local function removeLightSources()
-        for _, obj in pairs(workspace:GetDescendants()) do
-            if obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
-                obj:Destroy()
-            end
-        end
-    end
-
-    removeParticleEffects()
-    removeLightSources()
-    darkenSky()
 end)
